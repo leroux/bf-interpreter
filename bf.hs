@@ -15,7 +15,7 @@ type Memory  = Cells Word8
 
 -- Transform program string into cells.
 initProgram :: String -> Program
-initProgram (x:xs) = (" ", x, xs ++ " ")
+initProgram (x:xs) = ([], x, xs ++ " ")
 
 -- Initialize infinite memory (bounded by memory) with 0's.
 initMemory :: Memory
