@@ -1,8 +1,8 @@
 module BF where
 
+import Data.Binary.Put
+import qualified Data.ByteString.Lazy as BL
 import Data.Word (Word8)
-import qualified Data.ByteString as B
-import System.IO as IO
 
 type Zipper a = ([a], a, [a])
 type Cells a  = Zipper a
@@ -41,7 +41,7 @@ initMemory = ([], 0, repeat 0)
 
 -- output the byte at the data pointer
 (^.) :: Memory -> IO ()
-(^.) (_, f, _) = (B.putStr . B.pack) [f]
+(^.) (_, f, _) = (BL.putStr . runPut . putWord8) f
 
 {-
 (^./) :: Memory -> Memory
@@ -102,6 +102,9 @@ applyMem c =
       _   -> id
 
 processCommand :: Char -> Program -> Memory -> IO (Program, Memory)
+processCommand '.' p m = do
+    _ <- (^.) m
+    return ((^>) p, m)
 processCommand c p m@(_, f, _) = return (applyP p, applyM m)
   where applyP = applyProg c f
         applyM = applyMem c
