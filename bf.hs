@@ -6,7 +6,8 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Word (Word8)
 import qualified System.IO as IO
 
-type Zipper a = ([a], a, [a])
+-- Zipper :: (left side (reverse, nearest to focus is at head), current focus, right side)
+type Zipper a = ([a], a, [a]) 
 type Cells a  = Zipper a
 type Program = Cells Char
 type Memory  = Cells Word8
@@ -23,36 +24,37 @@ initMemory = ([], 0, repeat 0)
 ------ Core Brainfuck Commands ------
 -------------------------------------
 ---
--- increment the data pointer (to the point to the next cell to the right)
+-- `>` | increment the data pointer (to the point to the next cell to the right)
 (^>) :: Cells a -> Cells a
 (^>) cs@(_, _, []) = cs
 (^>) (ls, f, r:rs) = (f:ls, r, rs) 
 
--- decrement the data pointer (to the point to the next cell to the left).
+-- `<` | decrement the data pointer (to the point to the next cell to the left).
 (^<) :: Cells a -> Cells a
 (^<) ([], _, _)    = error "(^<): hit lower bound"
 (^<) (l:ls, f, rs) = (ls, l, f:rs)
 
--- increment the byte at the data pointer
+-- `+` | increment the byte at the data pointer
 (^+) :: Memory -> Memory
 (^+) (ls, f, rs) = (ls, f + 1, rs)
 
--- decrement the byte at the data pointer
+-- `-` | decrement the byte at the data pointer
 (^-) :: Memory -> Memory
 (^-) (ls, f, rs) = (ls, f - 1, rs)
 
--- output the byte at the data pointer
+-- `.` | output the byte at the data pointer
 (^.) :: Memory -> IO ()
 (^.) (_, f, _) = (BL.putStr . runPut . putWord8) f
 
+-- `,` | accept one byte of input, storing its cvalue in the byte at the
+-- data pointer.
 (^./) :: Memory -> IO Memory
 (^./) (ls, _, rs) = B.hGet IO.stdin 1 >>= \b -> case B.unpack b of
                                                 [byte] -> return (ls, byte, rs)
 
--- if the byte at the data pointer is zero, then instead of moving the
+-- `[` | if the byte at the data pointer is zero, then instead of moving the
 -- instruction pointer forward to the next command, jump it forward to the
 -- command after the matching `]` command.
--- `|-` is the same as `[`.
 (^|-) :: Word8 -> Program -> Program
 (^|-) df p
   | df == 0 = jumpToClose 0 p
@@ -64,10 +66,9 @@ initMemory = ([], 0, repeat 0)
                                        (i', ']') -> jumpToClose (i' - 1) $ (^>) p'
                                        (i', '[') -> jumpToClose (i' + 1) $ (^>) p'
 
--- if the byte at the data pointer is nonzero, then instead of moving the
+-- `]` | if the byte at the data pointer is nonzero, then instead of moving the
 -- instruction pointer forward to the next command, jump it back to the
 -- command after the matching `[` command.
--- `-|` is the same as `]`.
 (^-|) :: Word8 -> Program -> Program
 (^-|) df p
   | df /= 0 = jumpToAfterOpen 0 p
