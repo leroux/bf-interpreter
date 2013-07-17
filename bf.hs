@@ -1,8 +1,10 @@
-module BF where
+module Brainfuck where
 
 import Data.Binary.Put
+import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Word (Word8)
+import qualified System.IO as IO
 
 type Zipper a = ([a], a, [a])
 type Cells a  = Zipper a
@@ -11,7 +13,7 @@ type Memory  = Cells Word8
 
 -- Transform program string into cells.
 initProgram :: String -> Program
-initProgram (x:xs) = ([], x, xs)
+initProgram (x:xs) = ([], x, xs ++ " ")
 
 -- Initialize infinite memory (bounded by memory) with 0's.
 initMemory :: Memory
@@ -43,11 +45,9 @@ initMemory = ([], 0, repeat 0)
 (^.) :: Memory -> IO ()
 (^.) (_, f, _) = (BL.putStr . runPut . putWord8) f
 
-{-
-(^./) :: Memory -> Memory
-(^./) (ls, _, rs) = (ls, c, rs)
-  where c = B.head . B.getLine
--}
+(^./) :: Memory -> IO Memory
+(^./) (ls, _, rs) = B.hGet IO.stdin 1 >>= \b -> case B.unpack b of
+                                                [byte] -> return (ls, byte, rs)
 
 -- if the byte at the data pointer is zero, then instead of moving the
 -- instruction pointer forward to the next command, jump it forward to the
@@ -84,39 +84,35 @@ initMemory = ([], 0, repeat 0)
 -------------------------------------
 
 -- Deals with program data transformations.
-applyProg :: Char -> Word8 -> Program -> Program
-applyProg c f =
-    case c of
-      '[' -> (^|-) f
-      ']' -> (^-|) f
+transformProg :: Program -> Memory -> Program -> Program
+transformProg (_, ip, _) (_, dp, _) =
+    case ip of
+      '[' -> (^|-) dp
+      ']' -> (^-|) dp
       _   -> (^>)
 
 -- Deals with memory data transformations.
-applyMem :: Char -> Memory -> Memory
-applyMem c =
-    case c of
+transformMem :: Program -> Memory -> Memory
+transformMem (_, ip, _) =
+    case ip of
       '>' -> (^>)
       '<' -> (^<)
       '+' -> (^+)
       '-' -> (^-)
       _   -> id
 
-processCommand :: Char -> Program -> Memory -> IO (Program, Memory)
-processCommand '.' p m = do
-    _ <- (^.) m
-    return ((^>) p, m)
-processCommand c p m@(_, f, _) = return (applyP p, applyM m)
-  where applyP = applyProg c f
-        applyM = applyMem c
-
-execute :: Program -> Memory -> IO (Program, Memory)
-execute p@(_, f, []) m = processCommand f p m
-execute p@(_, f, _) m = do
-    (p', m') <- processCommand f p m
-    execute p' m'
+execute :: (Program, Memory) -> IO (Program, Memory)
+execute (p@(_, ip, rs), m)
+  | null rs = return (p, m)
+  | ip == '.' = (^.) m >> execute state
+  | ip == ',' = (^./) m >>= \m' -> execute (applyP p, m')
+  | otherwise = execute state >>= execute
+  where applyP = transformProg p m
+        applyM = transformMem p
+        state = (applyP p, applyM m)
 
 main :: IO ()
 main = do
     program <- getContents
-    _ <- execute (initProgram program) initMemory
+    _ <- execute (initProgram program, initMemory)
     return ()
