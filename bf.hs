@@ -5,6 +5,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
 import Data.Word (Word8)
 import qualified System.IO as IO
+import System.Environment (getArgs)
 
 -- Zipper :: (left side (reverse, nearest to focus is at head), current focus, right side)
 type Zipper a = ([a], a, [a]) 
@@ -14,7 +15,7 @@ type Memory  = Cells Word8
 
 -- Transform program string into cells.
 initProgram :: String -> Program
-initProgram (x:xs) = ([], x, xs ++ " ")
+initProgram (x:xs) = (" ", x, xs ++ " ")
 
 -- Initialize infinite memory (bounded by memory) with 0's.
 initMemory :: Memory
@@ -26,12 +27,12 @@ initMemory = ([], 0, repeat 0)
 ---
 -- `>` | increment the data pointer (to the point to the next cell to the right)
 (^>) :: Cells a -> Cells a
-(^>) cs@(_, _, []) = cs
+(^>) cs@(_, _, []) = error "(^>): hit upper bound"
 (^>) (ls, f, r:rs) = (f:ls, r, rs) 
 
 -- `<` | decrement the data pointer (to the point to the next cell to the left).
 (^<) :: Cells a -> Cells a
-(^<) ([], _, _)    = error "(^<): hit lower bound"
+(^<) cs@([], _, _) = error "(^<): hit lower bound"
 (^<) (l:ls, f, rs) = (ls, l, f:rs)
 
 -- `+` | increment the byte at the data pointer
@@ -46,11 +47,12 @@ initMemory = ([], 0, repeat 0)
 (^.) :: Memory -> IO ()
 (^.) (_, f, _) = (BL.putStr . runPut . putWord8) f
 
--- `,` | accept one byte of input, storing its cvalue in the byte at the
+-- `,` | accept one byte of input, storing its value in the byte at the
 -- data pointer.
 (^./) :: Memory -> IO Memory
 (^./) (ls, _, rs) = B.hGet IO.stdin 1 >>= \b -> case B.unpack b of
                                                 [byte] -> return (ls, byte, rs)
+                                                _      -> error "could not read a byte of input"
 
 -- `[` | if the byte at the data pointer is zero, then instead of moving the
 -- instruction pointer forward to the next command, jump it forward to the
@@ -62,9 +64,10 @@ initMemory = ([], 0, repeat 0)
   where jumpToClose :: Int -> Program -> Program
         jumpToClose _ (_, _, []) = error "jumpToClose: hit upper bound"
         jumpToClose i p'@(_, f, _) = case (i, f) of
-                                       (0, ']') -> p'
-                                       (i', ']') -> jumpToClose (i' - 1) $ (^>) p'
-                                       (i', '[') -> jumpToClose (i' + 1) $ (^>) p'
+                                       (1, ']') -> p'
+                                       (_', ']') -> jumpToClose (i - 1) $ (^>) p'
+                                       (_', '[') -> jumpToClose (i + 1) $ (^>) p'
+                                       _ -> jumpToClose i $ (^>) p'
 
 -- `]` | if the byte at the data pointer is nonzero, then instead of moving the
 -- instruction pointer forward to the next command, jump it back to the
@@ -77,8 +80,8 @@ initMemory = ([], 0, repeat 0)
         jumpToAfterOpen _ ([], _, _) = error "jumpToAfterOpen: hit lower bound"
         jumpToAfterOpen i p'@(l:_, _, _) = case (i, l) of
                                        (0, '[') -> p'
-                                       (i', '[') -> jumpToAfterOpen (i' + 1) $ (^<) p'
-                                       (i', ']') -> jumpToAfterOpen (i' - 1) $ (^<) p'
+                                       (_, '[') -> jumpToAfterOpen (i + 1) $ (^<) p'
+                                       (_', ']') -> jumpToAfterOpen (i - 1) $ (^<) p'
                                        _ -> jumpToAfterOpen i $ (^<) p'
 ---
 -------------------------------------
@@ -114,6 +117,10 @@ execute (p@(_, ip, rs), m)
 
 main :: IO ()
 main = do
-    program <- getContents
-    _ <- execute (initProgram program, initMemory)
-    return ()
+    args <- getArgs
+    case args of
+      [] -> putStrLn "Usage: runhaskell bf.hs <program file>"
+      f:_ -> do
+        program <- readFile f
+        _ <- execute (initProgram program, initMemory)
+        return ()
