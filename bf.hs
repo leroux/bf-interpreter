@@ -1,25 +1,18 @@
 module Brainfuck where
 
-import Data.Binary.Put
+import           Data.Binary.Put
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
-import Data.Word (Word8)
+import           Data.Word (Word8)
 import qualified System.IO as IO
-import System.Environment (getArgs)
+import           System.Environment (getArgs)
 
 -- Zipper :: (left side (reverse, nearest to focus is at head), current focus, right side)
 type Zipper a = ([a], a, [a]) 
+
 type Cells a  = Zipper a
 type Program = Cells Char
 type Memory  = Cells Word8
-
--- Transform program string into cells.
-initProgram :: String -> Program
-initProgram (x:xs) = ([], x, xs ++ " ")
-
--- Initialize infinite memory (bounded by memory) with 0's.
-initMemory :: Memory
-initMemory = ([], 0, repeat 0)
 
 -------------------------------------
 ------ Core Brainfuck Commands ------
@@ -27,12 +20,12 @@ initMemory = ([], 0, repeat 0)
 ---
 -- `>` | increment the data pointer (to the point to the next cell to the right)
 (^>) :: Cells a -> Cells a
-(^>) cs@(_, _, []) = error "(^>): hit upper bound"
+(^>) (_, _, []) = error "(^>): hit upper bound"
 (^>) (ls, f, r:rs) = (f:ls, r, rs) 
 
 -- `<` | decrement the data pointer (to the point to the next cell to the left).
 (^<) :: Cells a -> Cells a
-(^<) cs@([], _, _) = error "(^<): hit lower bound"
+(^<) ([], _, _) = error "(^<): hit lower bound"
 (^<) (l:ls, f, rs) = (ls, l, f:rs)
 
 -- `+` | increment the byte at the data pointer
@@ -87,7 +80,18 @@ initMemory = ([], 0, repeat 0)
 -------------------------------------
 -------------------------------------
 
--- Deals with program data transformations.
+-- Transform program string into cells.
+initProgram :: String -> Program
+initProgram (x:xs) = ([], x, xs ++ " ")
+
+-- Initialize infinite memory (bounded by memory) with 0's.
+initMemory :: Memory
+initMemory = ([], 0, repeat 0)
+
+initState :: String -> (Program, Memory)
+initState ps = (initProgram ps, initMemory)
+
+-- Returns state change for Program.
 transformProg :: Program -> Memory -> Program -> Program
 transformProg (_, ip, _) (_, dp, _) =
     case ip of
@@ -95,7 +99,7 @@ transformProg (_, ip, _) (_, dp, _) =
       ']' -> (^-|) dp
       _   -> (^>)
 
--- Deals with memory data transformations.
+-- Returns state change for Memory.
 transformMem :: Program -> Memory -> Memory
 transformMem (_, ip, _) =
     case ip of
@@ -106,10 +110,11 @@ transformMem (_, ip, _) =
       _   -> id
 
 execute :: (Program, Memory) -> IO (Program, Memory)
+execute (p@(_, _, []), m) = return (p, m) -- reached end of program.
 execute (p@(_, ip, rs), m)
   | null rs = return (p, m)
-  | ip == '.' = (^.) m >> execute state
-  | ip == ',' = (^./) m >>= \m' -> execute (applyP p, m')
+  | ip == '.' = (^.) m >> execute ((^>) p, m)
+  | ip == ',' = (^./) m >>= \m' -> execute ((^>) p, m')
   | otherwise = execute state >>= execute
   where applyP = transformProg p m
         applyM = transformMem p
@@ -122,5 +127,5 @@ main = do
       [] -> putStrLn "Usage: runhaskell bf.hs <program file>"
       f:_ -> do
         program <- readFile f
-        _ <- execute (initProgram program, initMemory)
+        _ <- execute $ initState program
         return ()
