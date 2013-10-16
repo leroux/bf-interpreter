@@ -1,3 +1,5 @@
+module Main where
+
 import           Data.Binary.Put
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as BL
